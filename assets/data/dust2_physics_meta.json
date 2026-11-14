@@ -1,0 +1,197 @@
+{
+  "phys_001": {
+    "surface": "concrete",
+    "bullet_material": "concrete",
+    "interact_as": []
+  },
+  "phys_003": {
+    "surface": "wood",
+    "bullet_material": "wood",
+    "interact_as": []
+  },
+  "phys_005": {
+    "surface": "chainlink",
+    "bullet_material": "glass",
+    "interact_as": []
+  },
+  "phys_007": {
+    "surface": "wood_panel",
+    "bullet_material": "wood",
+    "interact_as": []
+  },
+  "phys_009": {
+    "surface": "metal_sand_barrel",
+    "bullet_material": "metal",
+    "interact_as": []
+  },
+  "phys_011": {
+    "surface": "glass",
+    "bullet_material": "glass",
+    "interact_as": []
+  },
+  "phys_013": {
+    "surface": "metal",
+    "bullet_material": "metal",
+    "interact_as": []
+  },
+  "phys_015": {
+    "surface": "rock",
+    "bullet_material": "concrete",
+    "interact_as": []
+  },
+  "phys_017": {
+    "surface": "dirt",
+    "bullet_material": "concrete",
+    "interact_as": []
+  },
+  "phys_019": {
+    "surface": "default",
+    "bullet_material": "concrete",
+    "interact_as": []
+  },
+  "phys_021": {
+    "surface": "carpet",
+    "bullet_material": "concrete",
+    "interact_as": []
+  },
+  "phys_023": {
+    "surface": "solidmetal",
+    "bullet_material": "metal",
+    "interact_as": []
+  },
+  "phys_025": {
+    "surface": "metalpanel",
+    "bullet_material": "metal",
+    "interact_as": []
+  },
+  "phys_027": {
+    "surface": "plastic",
+    "bullet_material": "concrete",
+    "interact_as": []
+  },
+  "phys_029": {
+    "surface": "wood_dense",
+    "bullet_material": "wood",
+    "interact_as": []
+  },
+  "phys_031": {
+    "surface": "wood_plank",
+    "bullet_material": "wood",
+    "interact_as": []
+  },
+  "phys_033": {
+    "surface": "vrf_unknown_key_2838185980",
+    "bullet_material": "concrete",
+    "interact_as": []
+  },
+  "phys_035": {
+    "surface": "metal_dumpster",
+    "bullet_material": "metal",
+    "interact_as": []
+  },
+  "phys_037": {
+    "surface": "rubbertire",
+    "bullet_material": "concrete",
+    "interact_as": []
+  },
+  "phys_039": {
+    "surface": "metalvehicle",
+    "bullet_material": "metal",
+    "interact_as": []
+  },
+  "phys_041": {
+    "surface": "metalvent",
+    "bullet_material": "metal",
+    "interact_as": []
+  },
+  "phys_043": {
+    "surface": "wood_crate",
+    "bullet_material": "wood",
+    "interact_as": []
+  },
+  "phys_045": {
+    "surface": "wood_basket",
+    "bullet_material": "wood",
+    "interact_as": []
+  },
+  "phys_047": {
+    "surface": "pottery",
+    "bullet_material": "concrete",
+    "interact_as": []
+  },
+  "phys_049": {
+    "surface": "wood_solid",
+    "bullet_material": "wood",
+    "interact_as": []
+  },
+  "phys_051": {
+    "surface": "tile",
+    "bullet_material": "concrete",
+    "interact_as": []
+  },
+  "phys_053": {
+    "surface": "sand",
+    "bullet_material": "concrete",
+    "interact_as": []
+  },
+  "phys_055": {
+    "surface": "wood_tree",
+    "bullet_material": "wood",
+    "interact_as": []
+  },
+  "phys_057": {
+    "surface": "chainlink",
+    "bullet_material": "glass",
+    "interact_as": [
+      "passbullets"
+    ]
+  },
+  "phys_059": {
+    "surface": "pottery",
+    "bullet_material": "concrete",
+    "interact_as": [
+      "passbullets"
+    ]
+  },
+  "phys_061": {
+    "surface": "wood",
+    "bullet_material": "wood",
+    "interact_as": [
+      "npcclip",
+      "playerclip"
+    ]
+  },
+  "phys_063": {
+    "surface": "default",
+    "bullet_material": "concrete",
+    "interact_as": [
+      "npcclip",
+      "playerclip"
+    ]
+  },
+  "phys_065": {
+    "surface": "wood",
+    "bullet_material": "wood",
+    "interact_as": []
+  },
+  "phys_067": {
+    "surface": "metal",
+    "bullet_material": "metal",
+    "interact_as": []
+  },
+  "phys_069": {
+    "surface": "metalpanel",
+    "bullet_material": "metal",
+    "interact_as": []
+  },
+  "phys_071": {
+    "surface": "wood_plank",
+    "bullet_material": "wood",
+    "interact_as": []
+  },
+  "phys_073": {
+    "surface": "computer",
+    "bullet_material": "concrete",
+    "interact_as": []
+  }
+}
