@@ -86,7 +86,40 @@ var _body_col: CollisionShape3D = null
 var _capsule_shape: CapsuleShape3D = null
 var _hitbox_areas: Array[Dictionary] = []
 var _agent_visual: Node3D = null
+var _agent_skel: Skeleton3D = null
 var _anim_player: AnimationPlayer = null
+var _hand_attach: BoneAttachment3D = null
+var _held_weapon_holder: Node3D = null
+var _held_weapon_node: Node3D = null
+var _held_grip_inv := Transform3D.IDENTITY
+var _held_weapon_key: String = ""
+var _held_muzzle_quad: MeshInstance3D = null
+var _third_muzzle_timer: float = 0.0
+var _death_anim_timer: float = 0.0
+var _active_loco_anim: String = ""
+var _spine2_idx: int = -1
+var _spine3_idx: int = -1
+var _head_idx: int = -1
+var _grip_bone_indices: Dictionary = {}
+
+# Estado de animación de armas y vista en primera persona
+var vm_shot_elapsed: float = 99.0
+var vm_shot_seq: int = 0
+var vm_reload_elapsed: float = 99.0
+var vm_reload_dur: float = 2.2
+var vm_deploy_dur: float = 0.65
+var vm_knife_elapsed: float = 99.0
+var vm_knife_stab: bool = false
+var vm_silencer_action: String = ""
+var vm_silencer_timer: float = 0.0
+var vm_silencer_dur: float = 0.85
+var vm_grenade_holding: bool = false
+var vm_grenade_hold_elapsed: float = 0.0
+var vm_grenade_underhand: bool = false
+var vm_grenade_throw_elapsed: float = 99.0
+
+static var _shared_agent_lib: AnimationLibrary = null
+static var _agent_model_cache: Dictionary = {}
 
 # Entradas (llenadas por PlayerController o BotController)
 var input_forward: float = 0.0
@@ -96,6 +129,7 @@ var input_walk: bool = false
 var input_crouch: bool = false
 var input_fire_held: bool = false
 var input_fire_just: bool = false
+var input_alt_held: bool = false
 var input_alt_just: bool = false
 var input_reload_just: bool = false
 var input_use_held: bool = false
@@ -142,7 +176,14 @@ func _load_agent_visual() -> void:
 	if _agent_visual != null and is_instance_valid(_agent_visual):
 		_agent_visual.queue_free()
 	_agent_visual = null
+	_agent_skel = null
 	_anim_player = null
+	_hand_attach = null
+	_held_weapon_holder = null
+	_held_weapon_node = null
+	_held_muzzle_quad = null
+	_held_weapon_key = ""
+	_grip_bone_indices.clear()
 	if is_local_player:
 		return
 	var path: String = (
@@ -158,7 +199,10 @@ func _load_agent_visual() -> void:
 				inst.rotation.y = PI
 				add_child(inst)
 				_agent_visual = inst
-				_anim_player = _find_animation_player(inst)
+				_set_extra_cull_margin_recursive(inst, 12.0)
+				_agent_skel = _find_skeleton_recursive(inst)
+				_setup_agent_animator(inst)
+				_setup_held_weapon_rig()
 				return
 	var mi := MeshInstance3D.new()
 	var cap := CapsuleMesh.new()
@@ -171,6 +215,134 @@ func _load_agent_visual() -> void:
 	mi.position = Vector3(0.0, 0.9, 0.0)
 	add_child(mi)
 	_agent_visual = mi
+
+
+func _setup_agent_animator(root: Node3D) -> void:
+	if _agent_skel == null:
+		return
+	_spine2_idx = _agent_skel.find_bone("spine_2")
+	_spine3_idx = _agent_skel.find_bone("spine_3")
+	_head_idx = _agent_skel.find_bone("head_0")
+	for bn in ["spine_0", "spine_1", "spine_2", "spine_3", "clavicle_L", "arm_upper_L", "arm_lower_L", "hand_L", "clavicle_R", "arm_upper_R", "arm_lower_R", "hand_R"]:
+		var b_idx: int = _agent_skel.find_bone(bn)
+		if b_idx >= 0:
+			_grip_bone_indices[bn] = b_idx
+
+	_anim_player = _find_animation_player(root)
+	if _anim_player == null:
+		_anim_player = AnimationPlayer.new()
+		_anim_player.name = "AgentAnimPlayer"
+		root.add_child(_anim_player)
+	_anim_player.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
+
+	var anim_parent: Node = _anim_player.get_parent()
+	var skel_rel: String = str(anim_parent.get_path_to(_agent_skel))
+	var lib := _get_shared_agent_anim_lib(skel_rel)
+	if lib != null:
+		if _anim_player.has_animation_library(""):
+			_anim_player.remove_animation_library("")
+		_anim_player.add_animation_library("", lib)
+
+
+static func _get_shared_agent_anim_lib(skel_rel: String) -> AnimationLibrary:
+	if _shared_agent_lib != null:
+		return _shared_agent_lib
+	var anim_path := "res://assets/models/agents/agent_anims.glb"
+	if not ResourceLoader.exists(anim_path):
+		return null
+	var packed: Resource = ResourceLoader.load(anim_path)
+	if not (packed is PackedScene):
+		return null
+	var tmp := (packed as PackedScene).instantiate()
+	var src_ap: AnimationPlayer = null
+	var queue: Array[Node] = [tmp]
+	while not queue.is_empty():
+		var cur: Node = queue.pop_front()
+		if cur is AnimationPlayer:
+			src_ap = cur as AnimationPlayer
+			break
+		for ch in cur.get_children():
+			queue.append(ch)
+	if src_ap == null:
+		tmp.queue_free()
+		return null
+
+	var lib := AnimationLibrary.new()
+	for anim_name in src_ap.get_animation_list():
+		var src_anim: Animation = src_ap.get_animation(anim_name)
+		if src_anim == null:
+			continue
+		var cloned := src_anim.duplicate() as Animation
+		var low := String(anim_name).to_lower()
+		if low.begins_with("idle") or low.begins_with("walk_") or low.begins_with("run_") or low.begins_with("crouch_n") or low.begins_with("crouch_s") or low.begins_with("crouch_e") or low.begins_with("crouch_w") or low.begins_with("crouch_idle") or low.begins_with("inair"):
+			cloned.loop_mode = Animation.LOOP_LINEAR
+		else:
+			cloned.loop_mode = Animation.LOOP_NONE
+		for t_idx in range(cloned.get_track_count()):
+			var old_path: NodePath = cloned.track_get_path(t_idx)
+			var names_count: int = old_path.get_name_count()
+			var bone_name := ""
+			if old_path.get_subname_count() > 0:
+				var sub0 := String(old_path.get_subname(0))
+				if sub0 != "position" and sub0 != "rotation" and sub0 != "scale":
+					bone_name = sub0
+				elif names_count > 0:
+					bone_name = String(old_path.get_name(names_count - 1))
+			elif names_count > 0:
+				bone_name = String(old_path.get_name(names_count - 1))
+			if not bone_name.is_empty():
+				cloned.track_set_path(t_idx, NodePath("%s:%s" % [skel_rel, bone_name]))
+		lib.add_animation(anim_name, cloned)
+	tmp.queue_free()
+	_shared_agent_lib = lib
+	return lib
+
+
+func _setup_held_weapon_rig() -> void:
+	if _agent_skel == null:
+		return
+	_hand_attach = BoneAttachment3D.new()
+	_hand_attach.name = "RightHandSocket"
+	_hand_attach.bone_name = "hand_R"
+	_agent_skel.add_child(_hand_attach)
+
+	_held_weapon_holder = Node3D.new()
+	_held_weapon_holder.name = "HeldWeaponHolder"
+	_hand_attach.add_child(_held_weapon_holder)
+
+	var flash_mat := StandardMaterial3D.new()
+	flash_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	flash_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	flash_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	flash_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	flash_mat.albedo_color = Color(1.0, 0.88, 0.55, 0.95)
+	if ResourceLoader.exists("res://assets/textures/polish/muzzle_fire.png"):
+		flash_mat.albedo_texture = ResourceLoader.load("res://assets/textures/polish/muzzle_fire.png") as Texture2D
+	var qm := QuadMesh.new()
+	qm.size = Vector2(0.45, 0.45)
+	_held_muzzle_quad = MeshInstance3D.new()
+	_held_muzzle_quad.mesh = qm
+	_held_muzzle_quad.material_override = flash_mat
+	_held_muzzle_quad.visible = false
+	_held_weapon_holder.add_child(_held_muzzle_quad)
+	_refresh_held_weapon()
+
+
+func _find_skeleton_recursive(node: Node) -> Skeleton3D:
+	if node is Skeleton3D:
+		return node as Skeleton3D
+	for c in node.get_children():
+		var f := _find_skeleton_recursive(c)
+		if f != null:
+			return f
+	return null
+
+
+func _set_extra_cull_margin_recursive(node: Node, margin: float) -> void:
+	if node is GeometryInstance3D:
+		(node as GeometryInstance3D).extra_cull_margin = margin
+	for c in node.get_children():
+		_set_extra_cull_margin_recursive(c, margin)
 
 
 func _find_animation_player(node: Node) -> AnimationPlayer:
@@ -225,6 +397,19 @@ func reset_for_round(spawn_pos: Vector3, spawn_yaw: float, give_c4: bool) -> voi
 	defuse_progress = 0.0
 	zoom_level = 0
 	_burst_remaining = 0
+	vm_shot_elapsed = 99.0
+	vm_knife_elapsed = 99.0
+	vm_silencer_action = ""
+	vm_silencer_timer = 0.0
+	vm_grenade_holding = false
+	vm_grenade_hold_elapsed = 0.0
+	vm_grenade_throw_elapsed = 99.0
+	_death_anim_timer = 0.0
+	_active_loco_anim = ""
+	if _agent_visual != null and is_instance_valid(_agent_visual):
+		_agent_visual.visible = not is_local_player
+	if _held_weapon_holder != null:
+		_held_weapon_holder.visible = true
 
 	var rules: Dictionary = MatchManager.get_rules()
 	if bool(rules.get("free_armor", false)):
@@ -263,11 +448,21 @@ func _reset_slot_ammo(slot: int) -> void:
 
 
 func _set_alive_visuals(is_alive: bool) -> void:
-	visible = is_alive
 	collision_layer = 8 if is_alive else 0
 	for hb in _hitbox_areas:
 		var node: StaticBody3D = hb["node"]
 		node.collision_layer = 2 if is_alive else 0
+	if is_alive:
+		visible = true
+		if _agent_visual != null and is_instance_valid(_agent_visual):
+			_agent_visual.visible = not is_local_player
+		if _held_weapon_holder != null:
+			_held_weapon_holder.visible = true
+	else:
+		if _held_weapon_holder != null:
+			_held_weapon_holder.visible = false
+		if is_local_player:
+			visible = false
 
 
 func get_active_weapon_id() -> int:
@@ -334,13 +529,22 @@ func switch_slot(slot: int) -> void:
 	plant_progress = 0.0
 	_burst_remaining = 0
 	var wid: int = get_active_weapon_id()
-	deploy_cooldown = float(GameData.get_weapon_actions(wid).get("deploy", 0.9)) * 0.65
+	vm_deploy_dur = float(GameData.get_weapon_actions(wid).get("deploy", 0.9)) * 0.65
+	deploy_cooldown = vm_deploy_dur
+	vm_shot_elapsed = 99.0
+	vm_knife_elapsed = 99.0
+	vm_silencer_action = ""
+	vm_silencer_timer = 0.0
+	vm_grenade_holding = false
+	vm_grenade_hold_elapsed = 0.0
+	vm_grenade_throw_elapsed = 99.0
 	if slot == 4:
 		AudioManager.play_local_or_3d("utility-%s-draw" % active_grenade, global_position, 14.0, is_local_player, -3.0)
 	elif slot == 5:
 		AudioManager.play_local_or_3d("bomb-draw", global_position, 14.0, is_local_player, -3.0)
 	else:
 		AudioManager.play_weapon_action(wid, "draw", global_position, is_local_player)
+	_refresh_held_weapon()
 	weapon_changed.emit(wid, active_slot)
 
 
@@ -356,6 +560,12 @@ func _pick_next_grenade() -> String:
 
 func _physics_process(delta: float) -> void:
 	if not alive:
+		if not is_local_player and _death_anim_timer > 0.0:
+			_death_anim_timer = maxf(0.0, _death_anim_timer - delta)
+			if _anim_player != null:
+				_anim_player.advance(delta)
+			if _death_anim_timer <= 0.0 and _agent_visual != null and is_instance_valid(_agent_visual):
+				_agent_visual.visible = false
 		return
 	if spawn_protection > 0.0:
 		spawn_protection = maxf(0.0, spawn_protection - delta)
@@ -366,7 +576,7 @@ func _physics_process(delta: float) -> void:
 	_step_weapon_timers(delta)
 	_step_combat_actions(delta)
 	_sync_crouch_hitboxes(delta)
-	_update_agent_animation()
+	_update_agent_animation(delta)
 
 	if world_ref != null and not is_local_player:
 		var picked: Dictionary = world_ref.try_pickup_nearby(self, true)
@@ -476,29 +686,212 @@ func _sync_crouch_hitboxes(delta: float) -> void:
 		node.position.y = lerpf(float(spec["y"]), float(spec["crouch_y"]), crouch_t)
 
 
-func _update_agent_animation() -> void:
-	if _anim_player == null:
+func _update_agent_animation(delta: float) -> void:
+	if is_local_player or _anim_player == null:
 		return
-	var h_speed: float = Vector2(velocity.x, velocity.z).length()
-	var target_anim: String = ""
-	for anim_name in _anim_player.get_animation_list():
-		var low: String = anim_name.to_lower()
-		if input_crouch and low.contains("crouch") and (h_speed < 0.2 or low.contains("walk")):
-			target_anim = anim_name
-			break
-		if h_speed > 1.2 and (low.contains("run") or low.contains("walk")):
-			target_anim = anim_name
-			break
-		if h_speed <= 1.2 and low.contains("idle"):
-			target_anim = anim_name
-			break
-	if not target_anim.is_empty() and _anim_player.current_animation != target_anim:
-		_anim_player.play(target_anim, 0.15)
+	var crouch_t: float = clampf(
+		(MovementMath.STANDING_EYE - eye_height) / (MovementMath.STANDING_EYE - MovementMath.DUCK_EYE),
+		0.0,
+		1.0
+	)
+	var h_vel := Vector2(velocity.x, velocity.z)
+	var h_speed: float = h_vel.length()
+	var fam: String = "rifle"
+	if active_slot == 2:
+		fam = "pistol"
+	elif active_slot == 3:
+		fam = "knife"
+
+	var target_anim := ""
+	if not grounded:
+		target_anim = "jump_stand_%s" % fam if velocity.y > 0.35 else "inair_stand_%s" % fam
+	elif active_slot == 5 and is_planting and _anim_player.has_animation("modern_idle_c4"):
+		target_anim = "modern_idle_c4"
+	elif h_speed < 0.25:
+		target_anim = "idle_crouch_%s" % fam if crouch_t > 0.45 else "idle_%s" % fam
+	else:
+		var fwd := Vector2(-sin(yaw), -cos(yaw))
+		var right := Vector2(cos(yaw), -sin(yaw))
+		var f_dot: float = h_vel.normalized().dot(fwd)
+		var r_dot: float = h_vel.normalized().dot(right)
+		var dir_tag := "n"
+		if f_dot >= 0.45:
+			dir_tag = "ne" if r_dot > 0.38 else ("nw" if r_dot < -0.38 else "n")
+		elif f_dot <= -0.45:
+			dir_tag = "se" if r_dot > 0.38 else ("sw" if r_dot < -0.38 else "s")
+		else:
+			dir_tag = "e" if r_dot >= 0.0 else "w"
+		var move_prefix := "crouch" if crouch_t > 0.45 else ("walk" if h_speed < 3.6 else "run")
+		target_anim = "%s_%s_%s" % [move_prefix, dir_tag, fam]
+		if not _anim_player.has_animation(target_anim):
+			target_anim = "%s_%s_%s" % [move_prefix, "n" if absf(f_dot) >= absf(r_dot) else ("e" if r_dot >= 0.0 else "w"), fam]
+
+	if not _anim_player.has_animation(target_anim):
+		target_anim = "idle_%s" % fam
+	if _anim_player.has_animation(target_anim) and _active_loco_anim != target_anim:
+		_active_loco_anim = target_anim
+		_anim_player.play(target_anim, 0.14)
+
+	_anim_player.advance(delta)
+
+	# Superponer grip de manos + pitch vertical en columna/cabeza + arma en mano derecha
+	if _agent_skel != null and (active_slot == 1 or active_slot == 2):
+		var grip: Dictionary = GameData.get_world_grip(get_active_weapon_id())
+		if not grip.is_empty():
+			var stand_g: Dictionary = grip.get("stand", {})
+			var crouch_g: Dictionary = grip.get("crouch", stand_g)
+			var s_bones: Dictionary = stand_g.get("bones", {})
+			var c_bones: Dictionary = crouch_g.get("bones", {})
+			for bn in _grip_bone_indices:
+				if not s_bones.has(bn):
+					continue
+				var b_idx: int = int(_grip_bone_indices[bn])
+				var sb: Dictionary = s_bones[bn]
+				var cb: Dictionary = c_bones.get(bn, sb)
+				var sp: Array = sb["p"]
+				var cp: Array = cb["p"]
+				var sq: Array = sb["q"]
+				var cq: Array = cb["q"]
+				var pos := Vector3(float(sp[0]), float(sp[1]), float(sp[2])).lerp(Vector3(float(cp[0]), float(cp[1]), float(cp[2])), crouch_t)
+				var q1 := Quaternion(float(sq[0]), float(sq[1]), float(sq[2]), float(sq[3])).normalized()
+				var q2 := Quaternion(float(cq[0]), float(cq[1]), float(cq[2]), float(cq[3])).normalized()
+				_agent_skel.set_bone_pose_position(b_idx, pos)
+				_agent_skel.set_bone_pose_rotation(b_idx, q1.slerp(q2, crouch_t))
+
+			var s_att: Array = stand_g.get("attachment", [])
+			var c_att: Array = crouch_g.get("attachment", s_att)
+			if s_att.size() == 16 and _held_weapon_holder != null:
+				var xf_s := _mat4_to_transform(s_att)
+				var xf_c := _mat4_to_transform(c_att) if c_att.size() == 16 else xf_s
+				var xf_blend := xf_s.interpolate_with(xf_c, crouch_t)
+				_held_weapon_holder.transform = xf_blend * _held_grip_inv
+
+	# Aplicar pitch vertical en columna y cabeza para apuntar arriba/abajo
+	if _agent_skel != null and absf(pitch) > 0.01:
+		var aim_p: float = clampf(pitch, -1.15, 1.15)
+		if _spine2_idx >= 0:
+			var q_s2 := _agent_skel.get_bone_pose_rotation(_spine2_idx)
+			_agent_skel.set_bone_pose_rotation(_spine2_idx, (q_s2 * Quaternion(Vector3.FORWARD, aim_p * 0.30)).normalized())
+		if _spine3_idx >= 0:
+			var q_s3 := _agent_skel.get_bone_pose_rotation(_spine3_idx)
+			_agent_skel.set_bone_pose_rotation(_spine3_idx, (q_s3 * Quaternion(Vector3.FORWARD, aim_p * 0.35)).normalized())
+		if _head_idx >= 0:
+			var q_hd := _agent_skel.get_bone_pose_rotation(_head_idx)
+			_agent_skel.set_bone_pose_rotation(_head_idx, (q_hd * Quaternion(Vector3.FORWARD, aim_p * 0.35)).normalized())
+
+	if _third_muzzle_timer > 0.0:
+		_third_muzzle_timer = maxf(0.0, _third_muzzle_timer - delta)
+		if _held_muzzle_quad != null:
+			_held_muzzle_quad.visible = _third_muzzle_timer > 0.0
+
+
+func _refresh_held_weapon() -> void:
+	if is_local_player or _held_weapon_holder == null:
+		return
+	var wid: int = get_active_weapon_id()
+	var key := "%d:%d:%s:%s" % [active_slot, wid, active_grenade, str(silencer_on)]
+	if key == _held_weapon_key:
+		return
+	_held_weapon_key = key
+	if _held_weapon_node != null and is_instance_valid(_held_weapon_node):
+		_held_weapon_node.queue_free()
+		_held_weapon_node = null
+	_held_grip_inv = Transform3D.IDENTITY
+
+	var path := ""
+	var preset_xform := Transform3D.IDENTITY
+	if active_slot == 4 and not active_grenade.is_empty():
+		path = "res://assets/models/grenades/%s.glb" % active_grenade
+		preset_xform = Transform3D(Basis(Vector3.UP, PI).scaled(Vector3.ONE * 39.37), Vector3(-2.5, 0.0, 0.5))
+	elif active_slot == 5:
+		path = "res://assets/models/c4.glb"
+		preset_xform = Transform3D(Basis().scaled(Vector3.ONE * 20.0), Vector3(-4.0, 0.0, 0.0))
+	elif active_slot == 3:
+		path = "res://assets/models/bayonet.glb"
+		preset_xform = Transform3D(Basis(Vector3.RIGHT, PI * 0.5).scaled(Vector3.ONE * 39.37), Vector3(-2.0, 0.0, 0.0))
+	else:
+		path = GameData.get_viewmodel_path(wid)
+
+	if path.is_empty() or not ResourceLoader.exists(path):
+		return
+	var packed: Resource = ResourceLoader.load(path)
+	if not (packed is PackedScene):
+		return
+	var inst := (packed as PackedScene).instantiate() as Node3D
+	if inst == null:
+		return
+	_set_extra_cull_margin_recursive(inst, 8.0)
+	_held_weapon_holder.add_child(inst)
+	_held_weapon_node = inst
+
+	if active_slot == 1 or active_slot == 2:
+		var wpn_node := _find_named_child(inst, "weapon")
+		if wpn_node != null:
+			var rel := _rel_xform(wpn_node, inst)
+			_held_grip_inv = Transform3D(rel.basis.orthonormalized(), rel.origin).affine_inverse()
+		var sil := _find_named_child(inst, "silencer")
+		if sil != null and not silencer_on:
+			sil.visible = false
+		if _held_muzzle_quad != null:
+			var muz := _find_named_child(inst, "muzzle")
+			_held_muzzle_quad.position = _rel_xform(muz, inst).origin if muz != null else Vector3(0.0, 0.05, -0.55)
+	else:
+		_held_weapon_holder.transform = preset_xform
+
+
+func _mat4_to_transform(m: Array) -> Transform3D:
+	var c0 := Vector3(float(m[0]), float(m[1]), float(m[2]))
+	var c1 := Vector3(float(m[4]), float(m[5]), float(m[6]))
+	var c2 := Vector3(float(m[8]), float(m[9]), float(m[10]))
+	var orig := Vector3(float(m[12]), float(m[13]), float(m[14]))
+	return Transform3D(Basis(c0, c1, c2), orig)
+
+
+func _rel_xform(n: Node3D, anc: Node3D) -> Transform3D:
+	var acc := Transform3D.IDENTITY
+	var cur: Node = n
+	while cur != null and cur != anc:
+		if cur is Node3D:
+			acc = (cur as Node3D).transform * acc
+		cur = cur.get_parent()
+	return acc
+
+
+func _find_named_child(n: Node, nm: String) -> Node3D:
+	if n is Node3D and n.name == nm:
+		return n as Node3D
+	for c in n.get_children():
+		var f := _find_named_child(c, nm)
+		if f != null:
+			return f
+	return null
 
 
 func _step_weapon_timers(delta: float) -> void:
 	fire_cooldown = maxf(0.0, fire_cooldown - delta)
 	deploy_cooldown = maxf(0.0, deploy_cooldown - delta)
+	vm_shot_elapsed = minf(99.0, vm_shot_elapsed + delta)
+	vm_knife_elapsed = minf(99.0, vm_knife_elapsed + delta)
+	vm_grenade_throw_elapsed = minf(99.0, vm_grenade_throw_elapsed + delta)
+
+	if vm_grenade_holding:
+		vm_grenade_hold_elapsed += delta
+	if active_slot == 4 and vm_grenade_throw_elapsed >= 0.30 and vm_grenade_throw_elapsed < 1.0:
+		if int(grenades.get(active_grenade, 0)) <= 0:
+			active_grenade = _pick_next_grenade()
+			if active_grenade.is_empty():
+				switch_slot(1 if primary_id >= 0 else 2)
+			else:
+				switch_slot(4)
+
+	if not vm_silencer_action.is_empty():
+		vm_silencer_timer -= delta
+		if vm_silencer_timer <= 0.0:
+			silencer_on = (vm_silencer_action == "silencer_attach")
+			vm_silencer_action = ""
+			vm_silencer_timer = 0.0
+			_refresh_held_weapon()
+
 	GameData.recoil_sys.advance_aim_punch(aim_punch, delta)
 
 	var pose: Dictionary = _build_pose_dict()
@@ -601,8 +994,23 @@ func _step_combat_actions(delta: float) -> void:
 		_handle_alt_fire()
 
 	if active_slot == 4:
-		if (input_fire_just or input_alt_just) and not active_grenade.is_empty():
-			_throw_grenade(1.0 if input_fire_just else 0.48)
+		if is_local_player:
+			if not vm_grenade_holding and int(grenades.get(active_grenade, 0)) > 0 and vm_grenade_throw_elapsed > 0.35:
+				if input_fire_held or input_alt_held:
+					vm_grenade_holding = true
+					vm_grenade_hold_elapsed = 0.0
+					vm_grenade_underhand = input_alt_held and not input_fire_held
+					AudioManager.play_local_or_3d("utility-%s-pinpull" % active_grenade, global_position, 14.0, true, -3.0)
+			elif vm_grenade_holding and not input_fire_held and not input_alt_held:
+				var str_throw: float = 0.48 if vm_grenade_underhand else 1.0
+				vm_grenade_holding = false
+				_throw_grenade(str_throw, true)
+		else:
+			if (input_fire_just or input_alt_just) and not active_grenade.is_empty():
+				_throw_grenade(1.0 if input_fire_just else 0.48, false)
+		return
+
+	if not vm_silencer_action.is_empty():
 		return
 
 	if active_slot == 3:
@@ -637,8 +1045,10 @@ func _handle_alt_fire() -> void:
 		var scope_clip: String = str(kit.get("scope", "zoom"))
 		AudioManager.play_local_or_3d(scope_clip, global_position, 14.0, is_local_player, -3.0)
 	elif bool(w.get("canToggleSilencer", false)):
-		silencer_on = not silencer_on
-		AudioManager.play_local_or_3d("click", global_position, 8.0, is_local_player, -4.0)
+		if vm_silencer_action.is_empty() and not is_reloading:
+			vm_silencer_action = "silencer_detach" if silencer_on else "silencer_attach"
+			vm_silencer_timer = vm_silencer_dur
+			AudioManager.play_local_or_3d("click", global_position, 8.0, is_local_player, -4.0)
 	elif bool(w.get("burstMode", false)):
 		burst_enabled = not burst_enabled
 		AudioManager.play_local_or_3d("click", global_position, 8.0, is_local_player, -4.0)
@@ -655,7 +1065,8 @@ func try_start_reload() -> void:
 	is_reloading = true
 	zoom_level = 0
 	var is_shell: bool = str(w.get("reloadStyle", "magazine")) == "shell"
-	reload_timer = 0.52 if is_shell else float(w.get("reload", 2.2))
+	vm_reload_dur = 0.52 if is_shell else float(w.get("reload", 2.2))
+	reload_timer = vm_reload_dur
 	AudioManager.play_weapon_action(wid, "reload", global_position, is_local_player)
 
 
@@ -712,6 +1123,13 @@ func _fire_gun_bullet(wid: int) -> void:
 
 	var w: Dictionary = GameData.get_weapon(wid)
 	var is_silenced: bool = bool(w.get("suppressed", false)) and (silencer_on or wid == 28)
+	var was_noscope: bool = int(w.get("zoomLevels", 0)) > 0 and zoom_level == 0
+	vm_shot_elapsed = 0.0
+	vm_shot_seq += 1
+	if not is_local_player and not is_silenced:
+		_third_muzzle_timer = 0.055
+		if _held_muzzle_quad != null:
+			_held_muzzle_quad.rotation.z = randf_range(0.0, TAU)
 	AudioManager.play_weapon_shot(wid, get_eye_position(), is_silenced, is_local_player)
 	fired_shot.emit(wid)
 
@@ -747,7 +1165,8 @@ func _fire_gun_bullet(wid: int) -> void:
 			range_mod,
 			armor_ratio,
 			pen_power,
-			wid
+			wid,
+			was_noscope
 		)
 
 	var mode_idx: int = int(pose["mode"])
@@ -764,7 +1183,8 @@ func _trace_bullet_ray(
 	range_mod: float,
 	armor_ratio: float,
 	pen_power: float,
-	wid: int
+	wid: int,
+	was_noscope: bool = false
 ) -> void:
 	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
 	var current_pos: Vector3 = origin
@@ -814,7 +1234,8 @@ func _trace_bullet_ray(
 				victim.armor = float(armored["armor"])
 				var final_hp_dmg: float = float(armored["health_damage"])
 				var was_alive: bool = victim.alive
-				victim.take_damage(final_hp_dmg, self, wid, region, region == "head", penetrated)
+				var through_smoke: bool = world_ref != null and world_ref.is_line_blocked_by_smoke(origin, hit_pos)
+				victim.take_damage(final_hp_dmg, self, wid, region, region == "head", penetrated, through_smoke, was_noscope)
 				damaged_enemy.emit(final_hp_dmg, region == "head", was_alive and not victim.alive)
 				if world_ref != null:
 					world_ref.spawn_impact_spark(hit_pos, normal, "flesh")
@@ -849,12 +1270,17 @@ func _trace_bullet_ray(
 		current_pos = exit_pos + dir * 0.03
 		remaining_dist -= thickness + 0.03
 
-	if world_ref != null and randf() < 0.45:
-		world_ref.spawn_tracer(origin + Vector3(0.0, -0.06, 0.0) + dir * 0.6, last_point)
+	if world_ref != null:
+		world_ref.carve_smoke_tunnel(origin, last_point, 0.36, 0.50)
+		if randf() < 0.45:
+			world_ref.spawn_tracer(origin + Vector3(0.0, -0.06, 0.0) + dir * 0.6, last_point)
 
 
 func _swing_knife(stab: bool) -> void:
 	fire_cooldown = 0.85 if stab else 0.45
+	vm_knife_elapsed = 0.0
+	vm_knife_stab = stab
+	vm_shot_seq += 1
 	AudioManager.play_local_or_3d("knife-swing2" if stab else "knife-swing1", global_position, 14.0, is_local_player, -3.0)
 	var range_m: float = BallisticsSystem.knife_range(stab)
 	var eye: Vector3 = get_eye_position()
@@ -884,20 +1310,22 @@ func _swing_knife(stab: bool) -> void:
 		world_ref.spawn_impact_spark(hit["position"], hit["normal"], "concrete")
 
 
-func _throw_grenade(strength: float) -> void:
+func _throw_grenade(strength: float, delay_switch: bool = false) -> void:
 	if active_grenade.is_empty() or int(grenades.get(active_grenade, 0)) <= 0:
 		return
 	var kind: String = active_grenade
 	grenades[kind] = int(grenades[kind]) - 1
+	vm_grenade_throw_elapsed = 0.0
 	var params: Dictionary = GrenadeMath.launch_params(
 		GameData.utility_data, kind, strength, get_eye_position(), get_look_direction(), velocity
 	)
 	AudioManager.play_local_or_3d("utility-%s-throw" % kind, global_position, 22.0, is_local_player)
 	if world_ref != null:
 		world_ref.spawn_grenade_projectile(kind, params["position"], params["velocity"], self)
-	active_grenade = _pick_next_grenade()
-	if active_grenade.is_empty():
-		switch_slot(1 if primary_id >= 0 else 2)
+	if not delay_switch:
+		active_grenade = _pick_next_grenade()
+		if active_grenade.is_empty():
+			switch_slot(1 if primary_id >= 0 else 2)
 
 
 func use_healthshot() -> void:
@@ -939,7 +1367,9 @@ func take_damage(
 	weapon_id: int,
 	_region: String,
 	headshot: bool,
-	penetrated: bool
+	penetrated: bool,
+	smoke_kill: bool = false,
+	noscope_kill: bool = false
 ) -> void:
 	if not alive or spawn_protection > 0.0 or amount <= 0.0:
 		return
@@ -955,7 +1385,7 @@ func take_damage(
 
 	if health <= 0.0:
 		health = 0.0
-		_die(attacker, weapon_id, headshot, penetrated)
+		_die(attacker, weapon_id, headshot, penetrated, smoke_kill, noscope_kill)
 	health_changed.emit(health, armor)
 
 
@@ -963,9 +1393,23 @@ func apply_flash(duration: float) -> void:
 	flash_amount = maxf(flash_amount, minf(duration, 4.5))
 
 
-func _die(attacker: Node, weapon_id: int, headshot: bool, penetrated: bool) -> void:
+func _die(
+	attacker: Node,
+	weapon_id: int,
+	headshot: bool,
+	penetrated: bool,
+	smoke_kill: bool = false,
+	noscope_kill: bool = false
+) -> void:
 	alive = false
 	_set_alive_visuals(false)
+	if not is_local_player and _anim_player != null:
+		var d_clip := "head" if headshot else ("crouch_die" if input_crouch else ("death%d" % randi_range(1, 3)))
+		if not _anim_player.has_animation(d_clip):
+			d_clip = "death1"
+		if _anim_player.has_animation(d_clip):
+			_anim_player.play(d_clip, 0.08)
+			_death_anim_timer = 3.5
 	AudioManager.play_3d("death-%d" % randi_range(1, 3), global_position, 26.0, 0.0)
 	if world_ref != null:
 		if has_c4:
@@ -975,7 +1419,7 @@ func _die(attacker: Node, weapon_id: int, headshot: bool, penetrated: bool) -> v
 			world_ref.spawn_dropped_item("weapon", primary_id, primary_ammo, primary_reserve, global_position + Vector3(0, 0.7, 0), Vector3.ZERO)
 	var att := attacker as CombatantBase
 	var blind: bool = att != null and att.flash_amount > 1.2
-	MatchManager.register_kill(attacker, self, weapon_id, headshot, penetrated, blind)
+	MatchManager.register_kill(attacker, self, weapon_id, headshot, penetrated, blind, smoke_kill, noscope_kill)
 
 
 func try_buy_weapon(weapon_id: int) -> bool:

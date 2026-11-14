@@ -5,8 +5,7 @@ signal inspect_triggered
 
 var camera_pivot: Node3D = null
 var camera: Camera3D = null
-var viewmodel_holder: Node3D = null
-var _viewmodel_model: Node3D = null
+var viewmodel_rig: ViewModelRig = null
 var _muzzle_light: OmniLight3D = null
 
 var input_locked: bool = false
@@ -14,10 +13,10 @@ var _mouse_delta := Vector2.ZERO
 var _kick_back: float = 0.0
 var _kick_pitch: float = 0.0
 var _inspect_timer: float = 0.0
+var _inspect_dur: float = 3.6
 var _sway_offset := Vector2.ZERO
 var _bob_phase: float = 0.0
 var _death_respawn_timer: float = 0.0
-var _last_vm_key: String = ""
 
 
 func _ready() -> void:
@@ -38,9 +37,9 @@ func _ready() -> void:
 	camera.far = 260.0
 	camera_pivot.add_child(camera)
 
-	viewmodel_holder = Node3D.new()
-	viewmodel_holder.name = "ViewmodelHolder"
-	camera.add_child(viewmodel_holder)
+	viewmodel_rig = ViewModelRig.new()
+	viewmodel_rig.name = "ViewModelRig"
+	add_child(viewmodel_rig)
 
 	_muzzle_light = OmniLight3D.new()
 	_muzzle_light.light_color = Color(1.0, 0.78, 0.42)
@@ -68,6 +67,8 @@ func _process(delta: float) -> void:
 	_apply_mouse_look()
 
 	if not alive:
+		if viewmodel_rig != null:
+			viewmodel_rig.set_visible_viewmodel(false)
 		if MatchManager.mode == "deathmatch":
 			_death_respawn_timer += delta
 			if _death_respawn_timer >= 2.5:
@@ -93,8 +94,8 @@ func _apply_mouse_look() -> void:
 	var sens_rad: float = deg_to_rad(0.022) * SettingsManager.sensitivity * zoom_scale
 	yaw -= _mouse_delta.x * sens_rad
 	pitch = clampf(pitch - _mouse_delta.y * sens_rad, -1.54, 1.54)
-	_sway_offset.x = clampf(_sway_offset.x - _mouse_delta.x * 0.00018, -0.022, 0.022)
-	_sway_offset.y = clampf(_sway_offset.y + _mouse_delta.y * 0.00018, -0.022, 0.022)
+	_sway_offset.x = clampf(_sway_offset.x - _mouse_delta.x * 0.00018, -0.020, 0.020)
+	_sway_offset.y = clampf(_sway_offset.y + _mouse_delta.y * 0.00018, -0.020, 0.020)
 	_mouse_delta = Vector2.ZERO
 
 
@@ -107,6 +108,7 @@ func _read_discrete_inputs() -> void:
 		input_crouch = false
 		input_fire_held = false
 		input_fire_just = false
+		input_alt_held = false
 		input_alt_just = false
 		input_reload_just = false
 		input_use_held = false
@@ -119,6 +121,7 @@ func _read_discrete_inputs() -> void:
 	input_crouch = Input.is_action_pressed("crouch")
 	input_fire_held = Input.is_action_pressed("fire")
 	input_fire_just = Input.is_action_just_pressed("fire")
+	input_alt_held = Input.is_action_pressed("alt_fire")
 	input_alt_just = Input.is_action_just_pressed("alt_fire")
 	input_reload_just = Input.is_action_just_pressed("reload")
 	input_use_held = Input.is_action_pressed("use")
@@ -140,7 +143,7 @@ func _read_discrete_inputs() -> void:
 	elif Input.is_action_just_pressed("slot_healthshot"):
 		use_healthshot()
 	elif Input.is_action_just_pressed("inspect"):
-		_inspect_timer = 1.8
+		_inspect_timer = _inspect_dur
 		inspect_triggered.emit()
 
 
@@ -156,39 +159,74 @@ func _update_camera_and_viewmodel(delta: float) -> void:
 		target_fov = float(w.get("zoomFov1" if zoom_level == 1 else "zoomFov2", 40.0))
 	camera.fov = lerpf(camera.fov, target_fov, clampf(delta * 20.0, 0.0, 1.0))
 
-	viewmodel_holder.visible = zoom_level == 0
-
-	# Bobbing + kickback + inspect + sway
 	var h_speed: float = Vector2(velocity.x, velocity.z).length()
 	if grounded and h_speed > 0.5:
-		_bob_phase += delta * (4.0 + h_speed * 1.45)
+		_bob_phase += delta * (4.2 + h_speed * 1.45)
 	_sway_offset = _sway_offset.lerp(Vector2.ZERO, clampf(delta * 12.0, 0.0, 1.0))
 	_kick_back = lerpf(_kick_back, 0.0, clampf(delta * 18.0, 0.0, 1.0))
 	_kick_pitch = lerpf(_kick_pitch, 0.0, clampf(delta * 16.0, 0.0, 1.0))
-	if _inspect_timer > 0.0:
+	if is_reloading or input_fire_held or deploy_cooldown > 0.0:
+		_inspect_timer = 0.0
+	elif _inspect_timer > 0.0:
 		_inspect_timer = maxf(0.0, _inspect_timer - delta)
 	_muzzle_light.light_energy = lerpf(_muzzle_light.light_energy, 0.0, clampf(delta * 38.0, 0.0, 1.0))
 
-	var off: Vector3 = SettingsManager.viewmodel_offset * MovementMath.SOURCE_UNIT
-	var bob_x: float = cos(_bob_phase) * 0.004 * minf(1.0, h_speed / 5.0)
-	var bob_y: float = absf(sin(_bob_phase)) * 0.005 * minf(1.0, h_speed / 5.0)
-	var reload_dip: float = -0.14 * sin(clampf(reload_timer * 2.0, 0.0, PI)) if is_reloading else 0.0
-	var deploy_dip: float = -0.12 * clampf(deploy_cooldown * 2.2, 0.0, 1.0)
-	viewmodel_holder.position = Vector3(
-		-off.x + _sway_offset.x + bob_x,
-		-off.z + _sway_offset.y - bob_y + reload_dip + deploy_dip,
-		off.y + _kick_back
-	)
-	var inspect_yaw: float = sin(_inspect_timer * PI / 1.8) * 0.55 if _inspect_timer > 0.0 else 0.0
-	var inspect_roll: float = sin(_inspect_timer * PI / 1.8) * 0.35 if _inspect_timer > 0.0 else 0.0
-	viewmodel_holder.rotation = Vector3(_kick_pitch, inspect_yaw, inspect_roll)
+	var bob_x: float = cos(_bob_phase) * 0.0045 * minf(1.0, h_speed / 5.0)
+	var bob_y: float = absf(sin(_bob_phase)) * 0.0055 * minf(1.0, h_speed / 5.0)
+
+	if viewmodel_rig != null:
+		viewmodel_rig.set_visible_viewmodel(alive and zoom_level == 0)
+		if alive and zoom_level == 0:
+			var wid: int = get_active_weapon_id()
+			var w: Dictionary = GameData.get_weapon(wid)
+			var ammo_v: Vector2i = get_active_ammo()
+			var shoot_dur: float = clampf(float(w.get("delay", 0.12)) * 1.4, 0.24, 1.35)
+			if wid == 3:
+				shoot_dur = 1.15
+			var sil_prog: float = 0.0
+			if not vm_silencer_action.is_empty():
+				sil_prog = clampf(1.0 - vm_silencer_timer / maxf(0.05, vm_silencer_dur), 0.0, 1.0)
+			viewmodel_rig.update_rig(delta, {
+				"team": team,
+				"sway": _sway_offset,
+				"bob": Vector2(bob_x, -bob_y),
+				"kick_back": _kick_back,
+				"kick_pitch": _kick_pitch,
+				"deploy_cd": deploy_cooldown,
+				"deploy_dur": maxf(0.15, vm_deploy_dur),
+				"is_reloading": is_reloading,
+				"reload_timer": reload_timer,
+				"reload_dur": maxf(0.2, vm_reload_dur),
+				"ammo": ammo_v.x,
+				"shot_elapsed": vm_shot_elapsed,
+				"shot_seq": vm_shot_seq,
+				"shoot_anim_dur": shoot_dur,
+				"inspect_timer": _inspect_timer,
+				"inspect_dur": _inspect_dur,
+				"silencer_on": silencer_on,
+				"silencer_action": vm_silencer_action,
+				"silencer_progress": sil_prog,
+				"knife_elapsed": vm_knife_elapsed,
+				"knife_stab": vm_knife_stab,
+				"grenade_holding": vm_grenade_holding,
+				"grenade_hold_elapsed": vm_grenade_hold_elapsed,
+				"grenade_underhand": vm_grenade_underhand,
+				"grenade_throw_elapsed": vm_grenade_throw_elapsed,
+				"is_planting": is_planting,
+				"plant_progress": plant_progress,
+			})
 
 
-func _on_fired_shot(_wid: int) -> void:
-	_kick_back = 0.042
-	_kick_pitch = 0.055
+func _on_fired_shot(wid: int) -> void:
+	_kick_back = 0.036
+	_kick_pitch = 0.045
+	_inspect_timer = 0.0
+	var w: Dictionary = GameData.get_weapon(wid)
+	var is_silenced: bool = bool(w.get("suppressed", false)) and (silencer_on or wid == 28)
 	if _muzzle_light != null:
-		_muzzle_light.light_energy = 1.6 if silencer_on else 3.2
+		_muzzle_light.light_energy = 1.4 if is_silenced else 3.2
+	if viewmodel_rig != null:
+		viewmodel_rig.trigger_muzzle_flash(is_silenced)
 
 
 func _on_weapon_changed(_wid: int, _slot: int) -> void:
@@ -197,49 +235,6 @@ func _on_weapon_changed(_wid: int, _slot: int) -> void:
 
 
 func _refresh_viewmodel() -> void:
-	if viewmodel_holder == null:
+	if viewmodel_rig == null:
 		return
-	var key: String = "%d:%d:%s" % [active_slot, get_active_weapon_id(), active_grenade]
-	if key == _last_vm_key:
-		return
-	_last_vm_key = key
-
-	if _viewmodel_model != null and is_instance_valid(_viewmodel_model):
-		_viewmodel_model.queue_free()
-		_viewmodel_model = null
-
-	var path: String = ""
-	var yaw_offset: float = PI
-	var local_pos := Vector3(0.10, -0.12, -0.22)
-	var model_scale: Vector3 = Vector3.ONE
-
-	if active_slot == 4 and not active_grenade.is_empty():
-		path = "res://assets/models/grenades/%s.glb" % active_grenade
-		yaw_offset = 0.0
-		local_pos = Vector3(0.16, -0.15, -0.34)
-		model_scale = Vector3.ONE * 1.15
-	elif active_slot == 5:
-		path = "res://assets/models/c4.glb"
-		yaw_offset = PI * 0.35
-		local_pos = Vector3(0.14, -0.16, -0.36)
-		model_scale = Vector3.ONE * 0.65
-	elif active_slot == 3:
-		path = "res://assets/models/bayonet.glb"
-		yaw_offset = 0.0
-		local_pos = Vector3(0.16, -0.16, -0.34)
-		model_scale = Vector3.ONE * 0.9
-	else:
-		path = GameData.get_viewmodel_path(get_active_weapon_id())
-		yaw_offset = PI
-		local_pos = Vector3(0.08, -0.10, -0.18)
-
-	if not path.is_empty() and ResourceLoader.exists(path):
-		var packed: Resource = ResourceLoader.load(path)
-		if packed is PackedScene:
-			var inst := (packed as PackedScene).instantiate() as Node3D
-			if inst != null:
-				inst.rotation.y = yaw_offset
-				inst.position = local_pos
-				inst.scale = model_scale
-				viewmodel_holder.add_child(inst)
-				_viewmodel_model = inst
+	viewmodel_rig.load_weapon(active_slot, get_active_weapon_id(), active_grenade, team)

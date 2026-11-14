@@ -107,6 +107,7 @@ var sound_ranges: Dictionary = {}
 var round_strings: Dictionary = {}
 var dust2_overview: Dictionary = {}
 var dust2_physics_meta: Dictionary = {}
+var world_grips: Dictionary = {}
 
 var recoil_sys := RecoilSystem.new()
 var accuracy_sys := AccuracySystem.new()
@@ -130,6 +131,7 @@ func _ready() -> void:
 	ui_cues = _load_json("res://assets/data/ui_cues.json")
 	sound_ranges = _load_json("res://assets/data/sound_ranges.json")
 	round_strings = _load_json("res://assets/data/round_strings.json")
+	world_grips = _load_json("res://assets/data/world_grips.json")
 
 	_build_weapon_roster(weapon_stats_raw.get("weapons", []))
 	recoil_sys.configure(recoil_raw.get("weapons", []), weapons.size())
@@ -260,7 +262,37 @@ func get_viewmodel_path(weapon_id: int) -> String:
 	if ResourceLoader.exists(exact_under):
 		return exact_under
 	var fallback_slug: String = str(VIEWMODEL_FALLBACKS.get(icon_slug, "ak-47"))
+	var fb_under: String = "res://assets/models/viewmodels/%s.glb" % fallback_slug.replace("-", "_")
+	if not ResourceLoader.exists("res://assets/models/viewmodels/%s.glb" % fallback_slug) and ResourceLoader.exists(fb_under):
+		return fb_under
 	return "res://assets/models/viewmodels/%s.glb" % fallback_slug
+
+
+func get_viewmodel_anims_path(weapon_id: int) -> String:
+	if EconomySystem.is_knife(weapon_id):
+		return "res://assets/models/bayonet_anims.glb"
+	var icon_slug: String = str(get_weapon(weapon_id).get("icon", "ak-47"))
+	for cand in [icon_slug, icon_slug.replace("-", "_"), str(VIEWMODEL_FALLBACKS.get(icon_slug, "ak-47")), str(VIEWMODEL_FALLBACKS.get(icon_slug, "ak-47")).replace("-", "_")]:
+		var p := "res://assets/models/viewmodels/%s_anims.glb" % cand
+		if ResourceLoader.exists(p):
+			return p
+	return "res://assets/models/viewmodels/ak-47_anims.glb"
+
+
+func get_arms_path(team: String) -> String:
+	return "res://assets/models/agents/ct_arms.glb" if team == "ct" else "res://assets/models/agents/t_arms.glb"
+
+
+func get_world_grip(weapon_id: int) -> Dictionary:
+	var key := str(weapon_id)
+	if world_grips.has(key) and world_grips[key] is Dictionary:
+		return world_grips[key]
+	var icon_slug: String = str(get_weapon(weapon_id).get("icon", "ak-47"))
+	var fb: String = str(VIEWMODEL_FALLBACKS.get(icon_slug, "ak-47"))
+	for wid in range(weapons.size()):
+		if str(weapons[wid].get("icon", "")) == fb and world_grips.has(str(wid)):
+			return world_grips[str(wid)]
+	return {}
 
 
 func get_loadout_for_team(team: String) -> Dictionary:

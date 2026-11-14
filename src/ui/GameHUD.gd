@@ -32,6 +32,9 @@ var _banner_title: Label = null
 var _banner_sub: Label = null
 var _killfeed_box: VBoxContainer = null
 var _fps_label: Label = null
+var _scope_blur_rect: ColorRect = null
+var _scope_blur_mat: ShaderMaterial = null
+var _kill_icons: Dictionary = {}
 
 var _banner_timer: float = 0.0
 
@@ -60,6 +63,22 @@ func _build_hud() -> void:
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
+
+	if ResourceLoader.exists("res://assets/shaders/scope_blur.gdshader"):
+		_scope_blur_rect = ColorRect.new()
+		_scope_blur_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_scope_blur_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_scope_blur_rect.visible = false
+		_scope_blur_mat = ShaderMaterial.new()
+		_scope_blur_mat.shader = ResourceLoader.load("res://assets/shaders/scope_blur.gdshader") as Shader
+		_scope_blur_mat.set_shader_parameter("u_strength", 0.0)
+		_scope_blur_rect.material = _scope_blur_mat
+		root.add_child(_scope_blur_rect)
+
+	for icon_key in ["headshot", "blind", "noscope", "penetrate", "smoke"]:
+		var ip := "res://assets/textures/polish/kill_%s.png" % icon_key
+		if ResourceLoader.exists(ip):
+			_kill_icons[icon_key] = ResourceLoader.load(ip) as Texture2D
 
 	crosshair = CrosshairOverlay.new()
 	root.add_child(crosshair)
@@ -101,12 +120,14 @@ func _build_hud() -> void:
 	var top_bar := PanelContainer.new()
 	top_bar.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	top_bar.offset_top = 14
-	top_bar.offset_left = -165
-	top_bar.offset_right = 165
+	top_bar.offset_left = -225
+	top_bar.offset_right = 225
 	top_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var top_sb := StyleBoxFlat.new()
-	top_sb.bg_color = Color(0.05, 0.07, 0.10, 0.75)
-	top_sb.set_corner_radius_all(4)
+	top_sb.bg_color = Color(0.05, 0.07, 0.11, 0.84)
+	top_sb.border_color = Color(0.24, 0.30, 0.40, 0.55)
+	top_sb.set_border_width_all(1)
+	top_sb.set_corner_radius_all(5)
 	top_sb.set_content_margin_all(8)
 	top_bar.add_theme_stylebox_override("panel", top_sb)
 	root.add_child(top_bar)
@@ -377,6 +398,14 @@ func _handle_ui_shortcuts() -> void:
 		radar.custom_minimum_size = target_sz
 		radar.size = target_sz
 
+	if _scope_blur_rect != null and _scope_blur_mat != null:
+		var show_blur := player != null and player.alive and player.zoom_level > 0
+		_scope_blur_rect.visible = show_blur
+		if show_blur:
+			var move_spd := Vector2(player.velocity.x, player.velocity.z).length()
+			var blur_px := clampf((move_spd - 0.8) * 1.4, 0.0, 5.5)
+			_scope_blur_mat.set_shader_parameter("u_strength", blur_px)
+
 
 func _open_pause() -> void:
 	_pause_panel.visible = true
@@ -422,11 +451,14 @@ func _refresh_labels() -> void:
 
 	if MatchManager.mode == "deathmatch":
 		var bw: Dictionary = GameData.get_weapon(MatchManager.dm_bonus_weapon)
-		_phase_label.text = "DM | Bonus (+5 pts): %s (%.0fs)" % [str(bw.get("name", "")), MatchManager.dm_bonus_timer]
+		_phase_label.text = "DEATHMATCH  |  BONUS (+5 PTS): %s (%.0fs)" % [str(bw.get("name", "")).to_upper(), MatchManager.dm_bonus_timer]
+		_phase_label.modulate = Color(1.0, 0.86, 0.35)
 	elif MatchManager.is_frozen():
-		_phase_label.text = "TIEMPO CONGELADO - COMPRA [B]"
+		_phase_label.text = "TIEMPO CONGELADO — COMPRA [B]"
+		_phase_label.modulate = Color(0.95, 0.85, 0.35)
 	else:
 		_phase_label.text = "RONDA %d  |  %s" % [MatchManager.round_number, MatchManager.mode.to_upper()]
+		_phase_label.modulate = Color(0.84, 0.88, 0.94)
 
 	if player == null or not is_instance_valid(player):
 		return
@@ -535,18 +567,63 @@ func _on_kill_feed(_entry: Dictionary) -> void:
 	for c in _killfeed_box.get_children():
 		c.queue_free()
 	for e in MatchManager.kill_feed:
-		var lbl := Label.new()
-		var hs_tag: String = " [HS]" if bool(e.get("headshot", false)) else ""
-		var pen_tag: String = " [WB]" if bool(e.get("penetrated", false)) else ""
+		var pill := PanelContainer.new()
+		pill.size_flags_horizontal = Control.SIZE_SHRINK_END
+		pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var psb := StyleBoxFlat.new()
+		var local_involved := (
+			player != null
+			and (str(e.get("killer", "")) == player.display_name or str(e.get("victim", "")) == player.display_name)
+		)
+		psb.bg_color = Color(0.06, 0.08, 0.12, 0.84)
+		psb.border_color = Color(0.90, 0.32, 0.25, 0.85) if local_involved else Color(0.25, 0.30, 0.38, 0.45)
+		psb.set_border_width_all(1)
+		psb.set_corner_radius_all(4)
+		psb.set_content_margin_all(5)
+		psb.content_margin_left = 10
+		psb.content_margin_right = 10
+		pill.add_theme_stylebox_override("panel", psb)
+
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		row.alignment = BoxContainer.ALIGNMENT_END
+		pill.add_child(row)
+
+		var killer_lbl := Label.new()
+		killer_lbl.text = str(e.get("killer", ""))
+		killer_lbl.add_theme_font_size_override("font_size", 14)
+		killer_lbl.modulate = Color(0.45, 0.78, 1.0) if str(e.get("killer_team", "")) == "ct" else Color(1.0, 0.74, 0.32)
+		row.add_child(killer_lbl)
+
+		var w_lbl := Label.new()
 		var w_name: String = str(GameData.get_weapon(int(e.get("weapon_id", 0))).get("name", ""))
-		lbl.text = "%s  [%s%s%s]  %s" % [
-			str(e.get("killer", "")),
-			w_name,
-			hs_tag,
-			pen_tag,
-			str(e.get("victim", "")),
-		]
-		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		lbl.add_theme_font_size_override("font_size", 14)
-		lbl.modulate = Color(0.55, 0.84, 1.0) if str(e.get("killer_team", "")) == "ct" else Color(1.0, 0.78, 0.38)
-		_killfeed_box.add_child(lbl)
+		w_lbl.text = "[%s]" % w_name
+		w_lbl.add_theme_font_size_override("font_size", 13)
+		w_lbl.modulate = Color(0.88, 0.90, 0.94)
+		row.add_child(w_lbl)
+
+		for badge in [
+			["noscope", bool(e.get("noscope", false))],
+			["smoke", bool(e.get("smoke", false))],
+			["blind", bool(e.get("blind", false))],
+			["penetrate", bool(e.get("penetrated", false))],
+			["headshot", bool(e.get("headshot", false))],
+		]:
+			if not bool(badge[1]):
+				continue
+			var key: String = str(badge[0])
+			if _kill_icons.has(key):
+				var tex_rect := TextureRect.new()
+				tex_rect.texture = _kill_icons[key] as Texture2D
+				tex_rect.custom_minimum_size = Vector2(18, 18)
+				tex_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+				tex_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+				row.add_child(tex_rect)
+
+		var victim_lbl := Label.new()
+		victim_lbl.text = str(e.get("victim", ""))
+		victim_lbl.add_theme_font_size_override("font_size", 14)
+		victim_lbl.modulate = Color(0.45, 0.78, 1.0) if str(e.get("victim_team", "")) == "ct" else Color(1.0, 0.74, 0.32)
+		row.add_child(victim_lbl)
+
+		_killfeed_box.add_child(pill)

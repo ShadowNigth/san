@@ -210,7 +210,9 @@ func register_kill(
 	weapon_id: int,
 	headshot: bool,
 	penetrated: bool,
-	blind_kill: bool
+	blind_kill: bool,
+	smoke_kill: bool = false,
+	noscope_kill: bool = false
 ) -> void:
 	var k_name: String = killer.display_name if killer != null else "Mundo"
 	var k_team: String = killer.team if killer != null else ""
@@ -252,6 +254,8 @@ func register_kill(
 		"headshot": headshot,
 		"penetrated": penetrated,
 		"blind": blind_kill,
+		"smoke": smoke_kill,
+		"noscope": noscope_kill,
 		"time": match_elapsed,
 	}
 	kill_feed.push_front(entry)

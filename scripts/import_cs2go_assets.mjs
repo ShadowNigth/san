@@ -72,6 +72,32 @@ function bakeWorldTransforms(doc) {
   }
 }
 
+function splitLargeMeshes(doc, maxPrimitives = 128) {
+  for (const mesh of [...doc.getRoot().listMeshes()]) {
+    const prims = [...mesh.listPrimitives()];
+    if (prims.length <= maxPrimitives) continue;
+    const owners = doc.getRoot().listNodes().filter((n) => n.getMesh() === mesh);
+    if (owners.length === 0) continue;
+    const baseName = mesh.getName() || "mesh";
+    const subMeshes = [];
+    for (let i = 0; i < prims.length; i += maxPrimitives) {
+      const subMesh = doc.createMesh(`${baseName}_part_${i / maxPrimitives}`);
+      for (const p of prims.slice(i, i + maxPrimitives)) {
+        mesh.removePrimitive(p);
+        subMesh.addPrimitive(p);
+      }
+      subMeshes.push(subMesh);
+    }
+    for (const owner of owners) {
+      owner.setMesh(null);
+      for (let i = 0; i < subMeshes.length; i++) {
+        owner.addChild(doc.createNode(`${owner.getName() || "part"}_${i}`).setMesh(subMeshes[i]));
+      }
+    }
+    mesh.dispose();
+  }
+}
+
 async function convertGlb(io, srcPath, dstPath, options = {}) {
   let bytes = fs.readFileSync(srcPath);
   if (srcPath.endsWith(".gz")) bytes = zlib.gunzipSync(bytes);
@@ -94,6 +120,7 @@ async function convertGlb(io, srcPath, dstPath, options = {}) {
       })
     );
   }
+  splitLargeMeshes(doc, 128);
   fs.mkdirSync(path.dirname(dstPath), { recursive: true });
   fs.writeFileSync(dstPath, await io.writeBinary(doc));
   console.log(`Exportado: ${path.relative(process.cwd(), dstPath)}`);
