@@ -330,10 +330,10 @@ func _update_fires(delta: float) -> void:
 
 func _update_tracers(delta: float) -> void:
 	for i in range(_tracer_pool.size() - 1, -1, -1):
-		var tr: Dictionary = _tracer_pool[i]
-		tr["timer"] = float(tr["timer"]) - delta
-		if float(tr["timer"]) <= 0.0:
-			var n: Node3D = tr["node"]
+		var tracer_entry: Dictionary = _tracer_pool[i]
+		tracer_entry["timer"] = float(tracer_entry["timer"]) - delta
+		if float(tracer_entry["timer"]) <= 0.0:
+			var n: Node3D = tracer_entry["node"]
 			if is_instance_valid(n):
 				n.queue_free()
 			_tracer_pool.remove_at(i)
@@ -359,7 +359,7 @@ func _update_atlas_fx(delta: float) -> void:
 			var total_frames: int = cols * rows
 			var f_idx: int = mini(total_frames - 1, int(floor(frac * float(total_frames))))
 			var gx: int = f_idx % cols
-			var gy: int = f_idx / cols
+			var gy: int = floori(float(f_idx) / float(cols))
 			mat.uv1_scale = Vector3(1.0 / float(cols), 1.0 / float(rows), 1.0)
 			mat.uv1_offset = Vector3(float(gx) / float(cols), float(gy) / float(rows), 0.0)
 			mat.albedo_color.a = float(fx.get("base_alpha", 1.0)) * (1.0 - frac * frac)
@@ -426,7 +426,7 @@ func detonate_grenade(
 				c.take_damage(float(armored["health_damage"]), thrower, 0, "chest", false, false)
 
 		"flash":
-			_spawn_explosion_flash(pos, Color(1.0, 1.0, 1.0))
+			_spawn_explosion_fx(pos, Color(1.0, 1.0, 1.0), false, 1.15)
 			for c in MatchManager.combatants:
 				if c == null or not is_instance_valid(c) or not c.alive:
 					continue
