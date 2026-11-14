@@ -25,7 +25,8 @@ class ParkMillerRandom:
 		_shuffle.fill(0)
 
 	func _advance() -> void:
-		var high: int = int(_seed / 127773)
+		@warning_ignore("integer_division")
+		var high: int = _seed / 127773
 		_seed = 16807 * (_seed - high * 127773) - 2836 * high
 		if _seed < 0:
 			_seed += 2147483647
@@ -39,7 +40,8 @@ class ParkMillerRandom:
 					_shuffle[i] = _seed
 			_previous = _shuffle[0]
 		_advance()
-		var index: int = int(_previous / 67108864)
+		@warning_ignore("integer_division")
+		var index: int = _previous / 67108864
 		_previous = _shuffle[index]
 		_shuffle[index] = _seed
 		return minf(float(_previous) / 2147483647.0, 1.0 - 1.2e-7)

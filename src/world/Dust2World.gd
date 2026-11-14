@@ -192,7 +192,7 @@ func _update_fires(delta: float) -> void:
 			var dist_xz: float = Vector2(c.global_position.x - f_pos.x, c.global_position.z - f_pos.z).length()
 			var dy: float = absf(c.global_position.y - f_pos.y)
 			if dist_xz <= float(f["radius"]) and dy <= 1.8:
-				var owner_node: Node = f["owner"]
+				var owner_node: Variant = f["owner"]
 				var dmg: float = 8.0
 				if owner_node != null and is_instance_valid(owner_node) and owner_node != c and owner_node.team == c.team:
 					if not ff_enabled:
@@ -229,7 +229,7 @@ func _update_planted_c4(delta: float) -> void:
 
 
 func spawn_grenade_projectile(
-	kind: String, pos: Vector3, vel: Vector3, thrower: Node
+	kind: String, pos: Vector3, vel: Vector3, thrower: Variant
 ) -> void:
 	var proj := GrenadeProjectile.new()
 	round_props_root.add_child(proj)
@@ -237,7 +237,7 @@ func spawn_grenade_projectile(
 
 
 func detonate_grenade(
-	kind: String, pos: Vector3, thrower: Node, thrower_team: String
+	kind: String, pos: Vector3, thrower: Variant, thrower_team: String
 ) -> void:
 	var explode_r: float = float(GameData.sound_ranges.get("explode", 60.0))
 	AudioManager.play_3d("utility-%s-explode" % kind, pos, explode_r, 2.0)
@@ -444,7 +444,7 @@ func spawn_dropped_item(
 	})
 
 
-func try_pickup_nearby(actor: Node, only_c4_or_primary: bool = true) -> Dictionary:
+func try_pickup_nearby(actor: Variant, only_c4_or_primary: bool = true) -> Dictionary:
 	for i in range(dropped_items.size() - 1, -1, -1):
 		var it: Dictionary = dropped_items[i]
 		var d: float = actor.global_position.distance_to(it["pos"])

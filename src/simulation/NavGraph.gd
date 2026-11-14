@@ -36,8 +36,8 @@ func configure(nav_data: Dictionary) -> void:
 			for gz in range(z0, z1 + 1):
 				var key := Vector2i(gx, gz)
 				if not _cells.has(key):
-					_cells[key] = PackedInt32Array()
-				_cells[key].append(i)
+					_cells[key] = []
+				(_cells[key] as Array).append(i)
 
 	spawns = nav_data.get("spawns", {"t": [], "ct": []})
 	spawn_angles = nav_data.get("spawnAngles", {"t": [], "ct": []})
@@ -84,8 +84,9 @@ func nearest_area(pos: Vector3) -> int:
 			var key := Vector2i(gx + dx, gz + dz)
 			if not _cells.has(key):
 				continue
-			var bucket: PackedInt32Array = _cells[key]
-			for idx in bucket:
+			var bucket: Array = _cells[key]
+			for idx_var in bucket:
+				var idx: int = int(idx_var)
 				var c: Vector3 = area_center(idx)
 				var dy: float = absf(c.y - pos.y)
 				var d2: float = (c.x - pos.x) * (c.x - pos.x) + (c.z - pos.z) * (c.z - pos.z) + dy * dy * 9.0

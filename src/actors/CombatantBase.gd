@@ -797,7 +797,7 @@ func _trace_bullet_ray(
 		last_point = hit_pos
 
 		if collider != null and collider.has_meta("actor"):
-			var victim: Node = collider.get_meta("actor")
+			var victim := collider.get_meta("actor") as CombatantBase
 			if victim != null and is_instance_valid(victim) and victim.alive:
 				if victim.team == team and not ff_enabled:
 					exclude_rids.append((collider as CollisionObject3D).get_rid())
@@ -869,7 +869,7 @@ func _swing_knife(stab: bool) -> void:
 		return
 	var col: Object = hit["collider"]
 	if col != null and col.has_meta("actor"):
-		var victim: Node = col.get_meta("actor")
+		var victim := col.get_meta("actor") as CombatantBase
 		if victim != null and is_instance_valid(victim) and victim.alive and victim.team != team:
 			var v_fwd: Vector3 = -victim.global_transform.basis.z
 			var back: bool = BallisticsSystem.knife_backstab(global_position, victim.global_position, v_fwd)
@@ -946,7 +946,8 @@ func take_damage(
 	health -= amount
 	if attacker != null and attacker != self:
 		MatchManager.register_damage(attacker, amount)
-		hit_taken.emit(attacker.global_position, amount)
+		if attacker is Node3D:
+			hit_taken.emit((attacker as Node3D).global_position, amount)
 	if headshot:
 		AudioManager.play_local_or_3d("head", global_position, 22.0, is_local_player)
 	else:
@@ -972,7 +973,8 @@ func _die(attacker: Node, weapon_id: int, headshot: bool, penetrated: bool) -> v
 			world_ref.spawn_dropped_item("c4", 0, 0, 0, global_position + Vector3(0, 0.7, 0), Vector3.ZERO)
 		if primary_id >= 0:
 			world_ref.spawn_dropped_item("weapon", primary_id, primary_ammo, primary_reserve, global_position + Vector3(0, 0.7, 0), Vector3.ZERO)
-	var blind: bool = attacker != null and attacker.flash_amount > 1.2
+	var att := attacker as CombatantBase
+	var blind: bool = att != null and att.flash_amount > 1.2
 	MatchManager.register_kill(attacker, self, weapon_id, headshot, penetrated, blind)
 
 

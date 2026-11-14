@@ -137,7 +137,7 @@ func _build_hud() -> void:
 	score_row.add_child(_top_t_label)
 
 	_phase_label = Label.new()
-	_phase_label.horizontal = HORIZONTAL_ALIGNMENT_CENTER
+	_phase_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_phase_label.add_theme_font_size_override("font_size", 12)
 	_phase_label.modulate = Color(0.78, 0.82, 0.88)
 	top_vbox.add_child(_phase_label)
@@ -157,7 +157,7 @@ func _build_hud() -> void:
 	_fps_label.offset_left = -130
 	_fps_label.offset_top = 4
 	_fps_label.offset_right = -18
-	_fps_label.horizontal = HORIZONTAL_ALIGNMENT_RIGHT
+	_fps_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_fps_label.add_theme_font_size_override("font_size", 12)
 	_fps_label.modulate = Color(0.7, 0.9, 0.7, 0.8)
 	root.add_child(_fps_label)
@@ -234,7 +234,7 @@ func _build_hud() -> void:
 	root.add_child(center_bot)
 
 	_prompt_label = Label.new()
-	_prompt_label.horizontal = HORIZONTAL_ALIGNMENT_CENTER
+	_prompt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_prompt_label.add_theme_font_size_override("font_size", 15)
 	_prompt_label.modulate = Color(1.0, 0.92, 0.55)
 	center_bot.add_child(_prompt_label)
@@ -259,11 +259,11 @@ func _build_hud() -> void:
 	var ban_v := VBoxContainer.new()
 	_banner_panel.add_child(ban_v)
 	_banner_title = Label.new()
-	_banner_title.horizontal = HORIZONTAL_ALIGNMENT_CENTER
+	_banner_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_banner_title.add_theme_font_size_override("font_size", 26)
 	ban_v.add_child(_banner_title)
 	_banner_sub = Label.new()
-	_banner_sub.horizontal = HORIZONTAL_ALIGNMENT_CENTER
+	_banner_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_banner_sub.add_theme_font_size_override("font_size", 15)
 	ban_v.add_child(_banner_sub)
 
@@ -301,7 +301,7 @@ func _build_pause_menu(root: Control) -> void:
 
 	var t := Label.new()
 	t.text = "PAUSA"
-	t.horizontal = HORIZONTAL_ALIGNMENT_CENTER
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	t.add_theme_font_size_override("font_size", 24)
 	v.add_child(t)
 
@@ -417,7 +417,7 @@ func _refresh_labels() -> void:
 		_timer_label.modulate = Color(1.0, 0.25, 0.25)
 	else:
 		var t_sec: int = maxi(0, int(ceil(MatchManager.phase_timer)))
-		_timer_label.text = "%02d:%02d" % [int(t_sec / 60), t_sec % 60]
+		_timer_label.text = "%02d:%02d" % [floori(float(t_sec) / 60.0), t_sec % 60]
 		_timer_label.modulate = Color(0.95, 0.85, 0.35) if MatchManager.is_frozen() else Color.WHITE
 
 	if MatchManager.mode == "deathmatch":
@@ -546,7 +546,7 @@ func _on_kill_feed(_entry: Dictionary) -> void:
 			pen_tag,
 			str(e.get("victim", "")),
 		]
-		lbl.horizontal = HORIZONTAL_ALIGNMENT_RIGHT
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		lbl.add_theme_font_size_override("font_size", 14)
 		lbl.modulate = Color(0.55, 0.84, 1.0) if str(e.get("killer_team", "")) == "ct" else Color(1.0, 0.78, 0.38)
 		_killfeed_box.add_child(lbl)

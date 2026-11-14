@@ -176,7 +176,7 @@ func _check_elimination_win() -> void:
 		_finish_round("ct", "elimination")
 
 
-func notify_bomb_planted(site_idx: int, pos: Vector3, planter: Node) -> void:
+func notify_bomb_planted(site_idx: int, pos: Vector3, planter: Variant) -> void:
 	if bomb_planted:
 		return
 	bomb_planted = true
@@ -191,7 +191,7 @@ func notify_bomb_planted(site_idx: int, pos: Vector3, planter: Node) -> void:
 	state_updated.emit()
 
 
-func notify_bomb_defused(defuser: Node) -> void:
+func notify_bomb_defused(defuser: Variant) -> void:
 	if not bomb_planted:
 		return
 	bomb_planted = false
@@ -205,8 +205,8 @@ func notify_bomb_defused(defuser: Node) -> void:
 
 
 func register_kill(
-	killer: Node,
-	victim: Node,
+	killer: Variant,
+	victim: Variant,
 	weapon_id: int,
 	headshot: bool,
 	penetrated: bool,
@@ -261,7 +261,7 @@ func register_kill(
 	state_updated.emit()
 
 
-func register_damage(attacker: Node, amount: float) -> void:
+func register_damage(attacker: Variant, amount: float) -> void:
 	if attacker == null:
 		return
 	var aid: int = attacker.get_instance_id()
@@ -313,7 +313,7 @@ func _finish_round(winner: String, reason: String) -> void:
 func _finish_deathmatch() -> void:
 	phase = Phase.MATCH_END
 	phase_timer = 8.0
-	var top_actor: Node = null
+	var top_actor: Variant = null
 	var top_score: int = -1
 	for c in combatants:
 		if c != null and is_instance_valid(c) and c.score > top_score:

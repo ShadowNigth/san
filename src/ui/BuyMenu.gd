@@ -108,7 +108,7 @@ func _make_column(title_text: String) -> VBoxContainer:
 	col.add_theme_constant_override("separation", 6)
 	var lbl := Label.new()
 	lbl.text = title_text
-	lbl.horizontal = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.add_theme_font_size_override("font_size", 15)
 	lbl.modulate = Color(0.75, 0.85, 0.96)
 	col.add_child(lbl)
@@ -134,11 +134,8 @@ func _add_equipment_column(allowed: bool) -> void:
 			"res://assets/icons/buy/%s.svg" % it["icon"],
 			allowed and not owned and player.money >= price
 		)
-		btn.pressed.connect(func() -> void:
-			if player.try_buy_equipment(it["kind"]):
-				_record_buy("equip", it["kind"])
-				rebuild()
-		)
+		var eq_kind: String = str(it["kind"])
+		btn.pressed.connect(_on_buy_equipment.bind(eq_kind))
 		col.add_child(btn)
 
 
@@ -157,11 +154,7 @@ func _add_weapon_column(title_text: String, ids: Array, allowed: bool) -> void:
 			icon_path,
 			allowed and player.money >= price
 		)
-		btn.pressed.connect(func() -> void:
-			if player.try_buy_weapon(wid):
-				_record_buy("weapon", wid)
-				rebuild()
-		)
+		btn.pressed.connect(_on_buy_weapon.bind(wid))
 		col.add_child(btn)
 
 
@@ -189,12 +182,26 @@ func _add_grenades_column(allowed: bool) -> void:
 			"res://assets/icons/buy/%s.svg" % sp["icon"],
 			allowed and can_carry and player.money >= price
 		)
-		btn.pressed.connect(func() -> void:
-			if player.try_buy_grenade(kind):
-				_record_buy("nade", kind)
-				rebuild()
-		)
+		btn.pressed.connect(_on_buy_grenade.bind(kind))
 		col.add_child(btn)
+
+
+func _on_buy_equipment(eq_kind: String) -> void:
+	if player != null and player.try_buy_equipment(eq_kind):
+		_record_buy("equip", eq_kind)
+		rebuild()
+
+
+func _on_buy_weapon(wid: int) -> void:
+	if player != null and player.try_buy_weapon(wid):
+		_record_buy("weapon", wid)
+		rebuild()
+
+
+func _on_buy_grenade(kind: String) -> void:
+	if player != null and player.try_buy_grenade(kind):
+		_record_buy("nade", kind)
+		rebuild()
 
 
 func _create_item_button(title_text: String, price_text: String, icon_path: String, enabled: bool) -> Button:

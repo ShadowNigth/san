@@ -98,10 +98,12 @@ func touches_box(pos: Vector3, zone: Dictionary, radius: float = 0.0, height: fl
 	if vertices.is_empty():
 		return overlaps_aabb
 	var center := Vector3(pos.x, pos.y + height * 0.5, pos.z)
-	for axis in axes:
+	for axis_var in axes:
+		var axis: Vector3 = axis_var
 		var vmin: float = INF
 		var vmax: float = -INF
-		for v in vertices:
+		for v_var in vertices:
+			var v: Vector3 = v_var
 			var val: float = axis.dot(v)
 			vmin = minf(vmin, val)
 			vmax = maxf(vmax, val)
@@ -115,7 +117,7 @@ func touches_box(pos: Vector3, zone: Dictionary, radius: float = 0.0, height: fl
 
 
 func _get_convex_shape(zone: Dictionary) -> Dictionary:
-	var key: int = zone.get_instance_id() if zone is Object else hash(zone.get("min", []))
+	var key: int = zone.hash()
 	if _convex_cache.has(key):
 		return _convex_cache[key]
 	var planes: Array = zone.get("planes", [])
@@ -160,7 +162,8 @@ func _add_axis(axes: Array, axis: Vector3) -> void:
 	if len_sq < 1e-12:
 		return
 	var norm: Vector3 = axis / sqrt(len_sq)
-	for existing in axes:
+	for existing_var in axes:
+		var existing: Vector3 = existing_var
 		if absf(existing.dot(norm)) > 1.0 - 1e-6:
 			return
 	axes.append(norm)

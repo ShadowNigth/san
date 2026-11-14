@@ -2,13 +2,13 @@ class_name GrenadeProjectile
 extends Node3D
 
 var kind: String = "he"
-var thrower: Node = null
+var thrower: Variant = null
 var thrower_team: String = "ct"
 var velocity := Vector3.ZERO
 var fuse_timer: float = 1.6
 var decoy_timer: float = 0.0
 var decoy_shots: int = 0
-var world_ref: Node = null
+var world_ref: Variant = null
 var _resting: bool = false
 var _mesh_node: Node3D = null
 
@@ -17,8 +17,8 @@ func setup(
 	p_kind: String,
 	p_pos: Vector3,
 	p_vel: Vector3,
-	p_thrower: Node,
-	p_world: Node
+	p_thrower: Variant,
+	p_world: Variant
 ) -> void:
 	kind = p_kind
 	global_position = p_pos
